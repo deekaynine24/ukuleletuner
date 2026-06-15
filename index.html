@@ -280,13 +280,19 @@ function yinPitch(buffer, sampleRate){
 }
 
 /* UKULELE-LIKE TONE */
+let toneContext;
+
 function playTone(freq){
 
-    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    if(!toneContext){
+        toneContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
 
-    const osc1 = ctx.createOscillator();
-    const osc2 = ctx.createOscillator();
-    const gain = ctx.createGain();
+    toneContext.resume(); // important fix for Chrome/Safari autoplay rules
+
+    const osc1 = toneContext.createOscillator();
+    const osc2 = toneContext.createOscillator();
+    const gain = toneContext.createGain();
 
     osc1.type = "triangle";
     osc2.type = "sine";
@@ -294,7 +300,7 @@ function playTone(freq){
     osc1.frequency.value = freq;
     osc2.frequency.value = freq * 2;
 
-    const now = ctx.currentTime;
+    const now = toneContext.currentTime;
 
     gain.gain.setValueAtTime(0.0001, now);
     gain.gain.exponentialRampToValueAtTime(0.3, now + 0.01);
@@ -302,15 +308,13 @@ function playTone(freq){
 
     osc1.connect(gain);
     osc2.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(toneContext.destination);
 
     osc1.start(now);
     osc2.start(now);
 
     osc1.stop(now + 1.5);
     osc2.stop(now + 1.5);
-
-    setTimeout(()=>ctx.close(),1600);
 }
 </script>
 
