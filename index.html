@@ -20,9 +20,7 @@ body{
     padding:30px 20px;
 }
 
-h1{
-    margin-bottom:10px;
-}
+h1{ margin-bottom:10px; }
 
 button{
     padding:12px 18px;
@@ -56,17 +54,9 @@ button{
     min-height:40px;
 }
 
-.in-tune{
-    color:#22c55e;
-}
-
-.flat{
-    color:#f59e0b;
-}
-
-.sharp{
-    color:#ef4444;
-}
+.in-tune{ color:#22c55e; }
+.flat{ color:#f59e0b; }
+.sharp{ color:#ef4444; }
 
 .meter{
     width:100%;
@@ -102,19 +92,17 @@ button{
 }
 </style>
 </head>
+
 <body>
 
 <div class="container">
 
-
+<h1>Ukulele Tuner</h1>
 
 <button id="startBtn">Start Microphone</button>
 
 <div id="note">--</div>
-
-<div id="status">
-    Waiting for microphone...
-</div>
+<div id="status">Waiting...</div>
 
 <div class="meter">
     <div class="center-line"></div>
@@ -142,33 +130,24 @@ const noteNames=[
 let audioContext;
 let analyser;
 let pitchHistory=[];
+let toneContext;
 
-/* SAFE INIT — ensures DOM is ready */
-window.onload = function(){
+// --------------------
+// INIT BUTTON
+// --------------------
+document.getElementById("startBtn").onclick = startTuner;
 
-    const startBtn = document.getElementById("startBtn");
-
-    if(!startBtn){
-        console.error("Start button not found in DOM");
-        return;
-    }
-
-    startBtn.onclick = startTuner;
-};
-
-/* START MICROPHONE */
 async function startTuner(){
 
     try{
 
-        audioContext=new (window.AudioContext||window.webkitAudioContext)();
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
         const stream = await navigator.mediaDevices.getUserMedia({audio:true});
 
         const source = audioContext.createMediaStreamSource(stream);
 
         analyser = audioContext.createAnalyser();
-
         analyser.fftSize = 8192;
 
         source.connect(analyser);
@@ -176,18 +155,17 @@ async function startTuner(){
         detectPitch();
 
     }catch(err){
-        alert("Mic error: " + err.message);
+        alert("Microphone error:\n" + err.message);
         console.error(err);
     }
 }
 
-/* MAIN LOOP */
+// --------------------
+// TUNER LOOP
+// --------------------
 function detectPitch(){
 
-    if(!analyser) return;
-
     const buffer = new Float32Array(analyser.fftSize);
-
     analyser.getFloatTimeDomainData(buffer);
 
     const pitch = yinPitch(buffer, audioContext.sampleRate);
@@ -199,7 +177,9 @@ function detectPitch(){
     requestAnimationFrame(detectPitch);
 }
 
-/* UI UPDATE */
+// --------------------
+// UI UPDATE
+// --------------------
 function updateUI(freq){
 
     pitchHistory.push(freq);
@@ -223,6 +203,11 @@ function updateUI(freq){
     if(Math.abs(cents) <= 3){
         status.textContent = "✓ IN TUNE";
         status.className = "in-tune";
+
+        if(navigator.vibrate){
+            navigator.vibrate(50);
+        }
+
     }else if(cents < 0){
         status.textContent = "◀ TOO LOW";
         status.className = "flat";
@@ -243,12 +228,12 @@ function updateUI(freq){
     needle.style.left = smooth + "%";
 }
 
-/* LIGHTWEIGHT YIN */
+// --------------------
+// FAST YIN
+// --------------------
 function yinPitch(buffer, sampleRate){
 
     const size = buffer.length;
-    const threshold = 0.15;
-
     const diff = new Float32Array(size/2);
 
     for(let tau=1; tau<diff.length; tau++){
@@ -271,7 +256,7 @@ function yinPitch(buffer, sampleRate){
     }
 
     for(let tau=2; tau<diff.length; tau++){
-        if(diff[tau] < threshold){
+        if(diff[tau] < 0.15){
             return sampleRate / tau;
         }
     }
@@ -279,16 +264,18 @@ function yinPitch(buffer, sampleRate){
     return -1;
 }
 
-/* UKULELE-LIKE TONE */
-let toneContext;
-
+// --------------------
+// UKULELE-LIKE PLUCK + FIXED AUDIO CONTEXT
+// --------------------
 function playTone(freq){
 
     if(!toneContext){
         toneContext = new (window.AudioContext || window.webkitAudioContext)();
     }
 
-    toneContext.resume(); // important fix for Chrome/Safari autoplay rules
+    toneContext.resume();
+
+    const now = toneContext.currentTime;
 
     const osc1 = toneContext.createOscillator();
     const osc2 = toneContext.createOscillator();
@@ -300,11 +287,9 @@ function playTone(freq){
     osc1.frequency.value = freq;
     osc2.frequency.value = freq * 2;
 
-    const now = toneContext.currentTime;
-
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.3, now + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.5);
+    gain.gain.exponentialRampToValueAtTime(0.35, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.3);
 
     osc1.connect(gain);
     osc2.connect(gain);
@@ -313,9 +298,10 @@ function playTone(freq){
     osc1.start(now);
     osc2.start(now);
 
-    osc1.stop(now + 1.5);
-    osc2.stop(now + 1.5);
+    osc1.stop(now + 1.3);
+    osc2.stop(now + 1.3);
 }
+
 </script>
 
 </body>
