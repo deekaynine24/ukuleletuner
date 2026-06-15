@@ -1,8 +1,9 @@
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ukulele Tuner</title>
 
 <style>
@@ -10,7 +11,7 @@ body{
     margin:0;
     font-family:Arial,sans-serif;
     background:#111827;
-    color:#fff;
+    color:white;
     text-align:center;
 }
 
@@ -34,7 +35,7 @@ button{
 }
 
 #startBtn{
-    background:#16a34a;
+    background:#22c55e;
     color:white;
 }
 
@@ -46,27 +47,36 @@ button{
 #note{
     font-size:90px;
     font-weight:bold;
-    margin-top:25px;
-}
-
-#frequency{
-    font-size:20px;
-    color:#9ca3af;
+    margin-top:20px;
 }
 
 #status{
-    font-size:28px;
-    margin-top:10px;
+    font-size:32px;
+    font-weight:bold;
+    margin-top:15px;
+    min-height:40px;
+}
+
+.in-tune{
+    color:#22c55e;
+}
+
+.flat{
+    color:#f59e0b;
+}
+
+.sharp{
+    color:#ef4444;
 }
 
 .meter{
-    margin:30px auto;
     width:100%;
     max-width:500px;
     height:24px;
     background:#374151;
     border-radius:20px;
     position:relative;
+    margin:30px auto;
 }
 
 .center-line{
@@ -75,7 +85,7 @@ button{
     top:0;
     width:2px;
     height:100%;
-    background:white;
+    background:#22c55e;
 }
 
 .needle{
@@ -86,11 +96,13 @@ button{
     background:#ef4444;
     left:50%;
     transform:translateX(-50%);
-    transition:left .1s linear;
+}
+
+.note-buttons{
+    margin-top:20px;
 }
 </style>
 </head>
-
 <body>
 
 <div class="container">
@@ -100,8 +112,10 @@ button{
 <button id="startBtn">Start Microphone</button>
 
 <div id="note">--</div>
-<div id="frequency">0 Hz</div>
-<div id="status">Waiting...</div>
+
+<div id="status">
+    Waiting for microphone...
+</div>
 
 <div class="meter">
     <div class="center-line"></div>
@@ -128,6 +142,7 @@ const noteNames=[
 
 let audioContext;
 let analyser;
+let pitchHistory=[];
 
 document
 .getElementById("startBtn")
@@ -138,7 +153,7 @@ async function startTuner(){
     try{
 
         audioContext=new(
-            window.AudioContext||
+            window.AudioContext ||
             window.webkitAudioContext
         )();
 
@@ -148,7 +163,9 @@ async function startTuner(){
             });
 
         const source=
-            audioContext.createMediaStreamSource(stream);
+            audioContext.createMediaStreamSource(
+                stream
+            );
 
         analyser=
             audioContext.createAnalyser();
@@ -162,7 +179,7 @@ async function startTuner(){
     }catch(err){
 
         alert(
-            "Microphone access failed.\n\n"+
+            "Microphone access failed:\n\n"+
             err.message
         );
 
@@ -173,9 +190,13 @@ async function startTuner(){
 function detectPitch(){
 
     const buffer=
-        new Float32Array(analyser.fftSize);
+        new Float32Array(
+            analyser.fftSize
+        );
 
-    analyser.getFloatTimeDomainData(buffer);
+    analyser.getFloatTimeDomainData(
+        buffer
+    );
 
     const pitch=
         autoCorrelate(
@@ -184,19 +205,32 @@ function detectPitch(){
         );
 
     if(pitch>0){
-
         updateUI(pitch);
-
     }
 
-    requestAnimationFrame(detectPitch);
+    requestAnimationFrame(
+        detectPitch
+    );
 }
 
 function updateUI(freq){
 
+    pitchHistory.push(freq);
+
+    if(pitchHistory.length>8){
+        pitchHistory.shift();
+    }
+
+    const avgFreq=
+        pitchHistory.reduce(
+            (a,b)=>a+b,0
+        )/pitchHistory.length;
+
     const note=
         69+
-        12*Math.log2(freq/440);
+        12*Math.log2(
+            avgFreq/440
+        );
 
     const rounded=
         Math.round(note);
@@ -206,7 +240,7 @@ function updateUI(freq){
             ((rounded%12)+12)%12
         ];
 
-    const exactFreq=
+    const targetFreq=
         440*Math.pow(
             2,
             (rounded-69)/12
@@ -214,45 +248,70 @@ function updateUI(freq){
 
     const cents=
         1200*Math.log2(
-            freq/exactFreq
+            avgFreq/targetFreq
         );
 
     document
-    .getElementById("note")
-    .textContent=noteName;
+        .getElementById("note")
+        .textContent=noteName;
 
-    document
-    .getElementById("frequency")
-    .textContent=
-        freq.toFixed(1)+" Hz";
+    const status=
+        document.getElementById(
+            "status"
+        );
 
-    let status="In Tune";
+    if(Math.abs(cents)<=3){
 
-    if(cents<-5){
-        status="Flat";
+        status.textContent=
+            "✓ IN TUNE";
+
+        status.className=
+            "in-tune";
+
+    }else if(cents<0){
+
+        status.textContent=
+            "◀ TOO LOW";
+
+        status.className=
+            "flat";
+
+    }else{
+
+        status.textContent=
+            "TOO HIGH ▶";
+
+        status.className=
+            "sharp";
     }
-
-    if(cents>5){
-        status="Sharp";
-    }
-
-    document
-    .getElementById("status")
-    .textContent=status;
 
     const needle=
-        document.getElementById("needle");
+        document.getElementById(
+            "needle"
+        );
 
     let pos=
-        50+(cents*0.8);
+        50+(cents*0.5);
 
     pos=Math.max(
-        0,
-        Math.min(100,pos)
+        5,
+        Math.min(95,pos)
     );
 
+    const current=
+        parseFloat(
+            needle.dataset.pos || 50
+        );
+
+    const smoothed=
+        current+
+        ((pos-current)*0.15);
+
+    needle.dataset.pos=
+        smoothed;
+
     needle.style.left=
-        pos+"%";
+        smoothed+"%";
 }
 
 function autoCorrelate(
@@ -260,15 +319,20 @@ function autoCorrelate(
     sampleRate
 ){
 
-    let size=buffer.length;
+    let size=
+        buffer.length;
 
     let rms=0;
 
     for(let i=0;i<size;i++){
-        rms+=buffer[i]*buffer[i];
+        rms+=
+            buffer[i]*
+            buffer[i];
     }
 
-    rms=Math.sqrt(rms/size);
+    rms=Math.sqrt(
+        rms/size
+    );
 
     if(rms<0.01){
         return -1;
@@ -292,8 +356,8 @@ function autoCorrelate(
         ){
 
             correlation+=
-            buffer[i]*
-            buffer[i+offset];
+                buffer[i]*
+                buffer[i+offset];
         }
 
         if(
@@ -320,7 +384,10 @@ function autoCorrelate(
 function playTone(freq){
 
     const ctx=
-        new AudioContext();
+        new(
+            window.AudioContext ||
+            window.webkitAudioContext
+        )();
 
     const osc=
         ctx.createOscillator();
@@ -328,22 +395,29 @@ function playTone(freq){
     const gain=
         ctx.createGain();
 
-    osc.frequency.value=freq;
+    osc.frequency.value=
+        freq;
+
     osc.type="sine";
 
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(
+        ctx.destination
+    );
 
     gain.gain.value=0.2;
 
     osc.start();
 
     setTimeout(()=>{
+
         osc.stop();
         ctx.close();
+
     },1500);
 }
 </script>
 
 </body>
 </html>
+```
