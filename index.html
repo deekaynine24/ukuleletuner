@@ -1,7 +1,349 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ukulele Tuner</title>
+
+<style>
+body{
+    margin:0;
+    font-family:Arial,sans-serif;
+    background:#111827;
+    color:#fff;
+    text-align:center;
+}
+
+.container{
+    max-width:700px;
+    margin:auto;
+    padding:30px 20px;
+}
+
+h1{
+    margin-bottom:10px;
+}
+
+button{
+    padding:12px 18px;
+    border:none;
+    border-radius:8px;
+    cursor:pointer;
+    margin:5px;
+    font-size:16px;
+}
+
+#startBtn{
+    background:#16a34a;
+    color:white;
+}
+
+.note-buttons button{
+    background:#374151;
+    color:white;
+}
+
+#note{
+    font-size:90px;
+    font-weight:bold;
+    margin-top:25px;
+}
+
+#frequency{
+    font-size:20px;
+    color:#9ca3af;
+}
+
+#status{
+    font-size:28px;
+    margin-top:10px;
+}
+
+.meter{
+    margin:30px auto;
+    width:100%;
+    max-width:500px;
+    height:24px;
+    background:#374151;
+    border-radius:20px;
+    position:relative;
+}
+
+.center-line{
+    position:absolute;
+    left:50%;
+    top:0;
+    width:2px;
+    height:100%;
+    background:white;
+}
+
+.needle{
+    position:absolute;
+    top:-8px;
+    width:4px;
+    height:40px;
+    background:#ef4444;
+    left:50%;
+    transform:translateX(-50%);
+    transition:left .1s linear;
+}
+</style>
+</head>
+
 <body>
-<h1>Ukulele Tuner Test</h1>
-<p>If you can see this, GitHub Pages is working.</p>
+
+<div class="container">
+
+<h1>Ukulele Tuner</h1>
+
+<button id="startBtn">Start Microphone</button>
+
+<div id="note">--</div>
+<div id="frequency">0 Hz</div>
+<div id="status">Waiting...</div>
+
+<div class="meter">
+    <div class="center-line"></div>
+    <div id="needle" class="needle"></div>
+</div>
+
+<h2>Reference Notes</h2>
+
+<div class="note-buttons">
+    <button onclick="playTone(392)">G</button>
+    <button onclick="playTone(261.63)">C</button>
+    <button onclick="playTone(329.63)">E</button>
+    <button onclick="playTone(440)">A</button>
+</div>
+
+</div>
+
+<script>
+
+const noteNames=[
+"C","C#","D","D#","E","F",
+"F#","G","G#","A","A#","B"
+];
+
+let audioContext;
+let analyser;
+
+document
+.getElementById("startBtn")
+.addEventListener("click",startTuner);
+
+async function startTuner(){
+
+    try{
+
+        audioContext=new(
+            window.AudioContext||
+            window.webkitAudioContext
+        )();
+
+        const stream=
+            await navigator.mediaDevices.getUserMedia({
+                audio:true
+            });
+
+        const source=
+            audioContext.createMediaStreamSource(stream);
+
+        analyser=
+            audioContext.createAnalyser();
+
+        analyser.fftSize=4096;
+
+        source.connect(analyser);
+
+        detectPitch();
+
+    }catch(err){
+
+        alert(
+            "Microphone access failed.\n\n"+
+            err.message
+        );
+
+        console.error(err);
+    }
+}
+
+function detectPitch(){
+
+    const buffer=
+        new Float32Array(analyser.fftSize);
+
+    analyser.getFloatTimeDomainData(buffer);
+
+    const pitch=
+        autoCorrelate(
+            buffer,
+            audioContext.sampleRate
+        );
+
+    if(pitch>0){
+
+        updateUI(pitch);
+
+    }
+
+    requestAnimationFrame(detectPitch);
+}
+
+function updateUI(freq){
+
+    const note=
+        69+
+        12*Math.log2(freq/440);
+
+    const rounded=
+        Math.round(note);
+
+    const noteName=
+        noteNames[
+            ((rounded%12)+12)%12
+        ];
+
+    const exactFreq=
+        440*Math.pow(
+            2,
+            (rounded-69)/12
+        );
+
+    const cents=
+        1200*Math.log2(
+            freq/exactFreq
+        );
+
+    document
+    .getElementById("note")
+    .textContent=noteName;
+
+    document
+    .getElementById("frequency")
+    .textContent=
+        freq.toFixed(1)+" Hz";
+
+    let status="In Tune";
+
+    if(cents<-5){
+        status="Flat";
+    }
+
+    if(cents>5){
+        status="Sharp";
+    }
+
+    document
+    .getElementById("status")
+    .textContent=status;
+
+    const needle=
+        document.getElementById("needle");
+
+    let pos=
+        50+(cents*0.8);
+
+    pos=Math.max(
+        0,
+        Math.min(100,pos)
+    );
+
+    needle.style.left=
+        pos+"%";
+}
+
+function autoCorrelate(
+    buffer,
+    sampleRate
+){
+
+    let size=buffer.length;
+
+    let rms=0;
+
+    for(let i=0;i<size;i++){
+        rms+=buffer[i]*buffer[i];
+    }
+
+    rms=Math.sqrt(rms/size);
+
+    if(rms<0.01){
+        return -1;
+    }
+
+    let bestOffset=-1;
+    let bestCorrelation=0;
+
+    for(
+        let offset=20;
+        offset<1000;
+        offset++
+    ){
+
+        let correlation=0;
+
+        for(
+            let i=0;
+            i<size-offset;
+            i++
+        ){
+
+            correlation+=
+            buffer[i]*
+            buffer[i+offset];
+        }
+
+        if(
+            correlation>
+            bestCorrelation
+        ){
+
+            bestCorrelation=
+                correlation;
+
+            bestOffset=
+                offset;
+        }
+    }
+
+    if(bestOffset===-1){
+        return -1;
+    }
+
+    return sampleRate/
+           bestOffset;
+}
+
+function playTone(freq){
+
+    const ctx=
+        new AudioContext();
+
+    const osc=
+        ctx.createOscillator();
+
+    const gain=
+        ctx.createGain();
+
+    osc.frequency.value=freq;
+    osc.type="sine";
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    gain.gain.value=0.2;
+
+    osc.start();
+
+    setTimeout(()=>{
+        osc.stop();
+        ctx.close();
+    },1500);
+}
+</script>
+
 </body>
 </html>
