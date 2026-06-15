@@ -134,8 +134,6 @@ button{
 
 <script>
 
-document.addEventListener("DOMContentLoaded", () => {
-
 const noteNames=[
 "C","C#","D","D#","E","F",
 "F#","G","G#","A","A#","B"
@@ -145,166 +143,162 @@ let audioContext;
 let analyser;
 let pitchHistory=[];
 
-document
-.getElementById("startBtn")
-.addEventListener("click",startTuner);
+/* SAFE INIT — ensures DOM is ready */
+window.onload = function(){
 
+    const startBtn = document.getElementById("startBtn");
+
+    if(!startBtn){
+        console.error("Start button not found in DOM");
+        return;
+    }
+
+    startBtn.onclick = startTuner;
+};
+
+/* START MICROPHONE */
 async function startTuner(){
 
     try{
 
-        audioContext=new(
-            window.AudioContext||
-            window.webkitAudioContext
-        )();
+        audioContext=new (window.AudioContext||window.webkitAudioContext)();
 
-        const stream=
-            await navigator.mediaDevices.getUserMedia({
-                audio:true
-            });
+        const stream = await navigator.mediaDevices.getUserMedia({audio:true});
 
-        const source=
-            audioContext.createMediaStreamSource(stream);
+        const source = audioContext.createMediaStreamSource(stream);
 
-        analyser=
-            audioContext.createAnalyser();
+        analyser = audioContext.createAnalyser();
 
-        analyser.fftSize=8192;
+        analyser.fftSize = 8192;
 
         source.connect(analyser);
 
         detectPitch();
 
     }catch(err){
-        alert(err.message);
+        alert("Mic error: " + err.message);
         console.error(err);
     }
 }
 
+/* MAIN LOOP */
 function detectPitch(){
 
-    const buffer=
-        new Float32Array(analyser.fftSize);
+    if(!analyser) return;
+
+    const buffer = new Float32Array(analyser.fftSize);
 
     analyser.getFloatTimeDomainData(buffer);
 
-    const pitch=
-        yinPitch(buffer,audioContext.sampleRate);
+    const pitch = yinPitch(buffer, audioContext.sampleRate);
 
-    if(pitch>0){
+    if(pitch > 0){
         updateUI(pitch);
     }
 
     requestAnimationFrame(detectPitch);
 }
 
+/* UI UPDATE */
 function updateUI(freq){
 
     pitchHistory.push(freq);
-    if(pitchHistory.length>15) pitchHistory.shift();
+    if(pitchHistory.length > 15) pitchHistory.shift();
 
-    const avg=
-        pitchHistory.reduce((a,b)=>a+b,0)/pitchHistory.length;
+    const avg = pitchHistory.reduce((a,b)=>a+b,0)/pitchHistory.length;
 
-    const note=
-        69+12*Math.log2(avg/440);
+    const note = 69 + 12 * Math.log2(avg/440);
+    const rounded = Math.round(note);
 
-    const rounded=Math.round(note);
+    const name = noteNames[((rounded%12)+12)%12];
 
-    const name=
-        noteNames[((rounded%12)+12)%12];
+    const target = 440 * Math.pow(2,(rounded-69)/12);
 
-    const target=
-        440*Math.pow(2,(rounded-69)/12);
+    const cents = 1200 * Math.log2(avg/target);
 
-    const cents=
-        1200*Math.log2(avg/target);
+    document.getElementById("note").textContent = name;
 
-    document.getElementById("note").textContent=name;
+    const status = document.getElementById("status");
 
-    const status=document.getElementById("status");
-
-    if(Math.abs(cents)<=3){
-        status.textContent="✓ IN TUNE";
-        status.className="in-tune";
-    }else if(cents<0){
-        status.textContent="◀ TOO LOW";
-        status.className="flat";
+    if(Math.abs(cents) <= 3){
+        status.textContent = "✓ IN TUNE";
+        status.className = "in-tune";
+    }else if(cents < 0){
+        status.textContent = "◀ TOO LOW";
+        status.className = "flat";
     }else{
-        status.textContent="TOO HIGH ▶";
-        status.className="sharp";
+        status.textContent = "TOO HIGH ▶";
+        status.className = "sharp";
     }
 
-    const needle=document.getElementById("needle");
+    const needle = document.getElementById("needle");
 
-    let pos=50+(cents*0.5);
-    pos=Math.max(5,Math.min(95,pos));
+    let pos = 50 + cents * 0.5;
+    pos = Math.max(5, Math.min(95, pos));
 
-    const current=parseFloat(needle.dataset.pos||50);
-    const smooth=current+(pos-current)*0.15;
+    const prev = parseFloat(needle.dataset.pos || 50);
+    const smooth = prev + (pos - prev) * 0.15;
 
-    needle.dataset.pos=smooth;
-    needle.style.left=smooth+"%";
+    needle.dataset.pos = smooth;
+    needle.style.left = smooth + "%";
 }
 
-/* FAST YIN (real-time safe approximation) */
-function yinPitch(buffer,sampleRate){
+/* LIGHTWEIGHT YIN */
+function yinPitch(buffer, sampleRate){
 
-    const size=buffer.length;
-    const threshold=0.15;
+    const size = buffer.length;
+    const threshold = 0.15;
 
-    const diff=new Float32Array(size/2);
+    const diff = new Float32Array(size/2);
 
-    for(let tau=1;tau<diff.length;tau++){
+    for(let tau=1; tau<diff.length; tau++){
 
-        let sum=0;
+        let sum = 0;
 
-        for(let i=0;i<diff.length;i++){
-            const d=buffer[i]-buffer[i+tau];
-            sum+=d*d;
+        for(let i=0; i<diff.length; i++){
+            const d = buffer[i] - buffer[i+tau];
+            sum += d*d;
         }
 
-        diff[tau]=sum;
+        diff[tau] = sum;
     }
 
-    let running=0;
+    let running = 0;
 
-    for(let i=1;i<diff.length;i++){
-        running+=diff[i];
-        diff[i]*=i/running;
+    for(let i=1; i<diff.length; i++){
+        running += diff[i];
+        diff[i] *= i / running;
     }
 
-    for(let tau=2;tau<diff.length;tau++){
-
-        if(diff[tau]<threshold){
-            return sampleRate/tau;
+    for(let tau=2; tau<diff.length; tau++){
+        if(diff[tau] < threshold){
+            return sampleRate / tau;
         }
     }
 
     return -1;
 }
 
-/* UKULELE STYLE PLUCK */
+/* UKULELE-LIKE TONE */
 function playTone(freq){
 
-    const ctx=new (window.AudioContext||window.webkitAudioContext)();
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
 
-    const now=ctx.currentTime;
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    const gain = ctx.createGain();
 
-    const gain=ctx.createGain();
+    osc1.type = "triangle";
+    osc2.type = "sine";
 
-    const osc1=ctx.createOscillator();
-    const osc2=ctx.createOscillator();
+    osc1.frequency.value = freq;
+    osc2.frequency.value = freq * 2;
 
-    osc1.type="triangle";
-    osc2.type="sine";
+    const now = ctx.currentTime;
 
-    osc1.frequency.value=freq;
-    osc2.frequency.value=freq*2;
-
-    gain.gain.setValueAtTime(0.0001,now);
-    gain.gain.exponentialRampToValueAtTime(0.3,now+0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001,now+1.5);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.3, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.5);
 
     osc1.connect(gain);
     osc2.connect(gain);
@@ -313,13 +307,11 @@ function playTone(freq){
     osc1.start(now);
     osc2.start(now);
 
-    osc1.stop(now+1.5);
-    osc2.stop(now+1.5);
+    osc1.stop(now + 1.5);
+    osc2.stop(now + 1.5);
 
     setTimeout(()=>ctx.close(),1600);
 }
-
-});
 </script>
 
 </body>
