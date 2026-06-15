@@ -134,7 +134,8 @@ button{
 
 <script>
 
-```javascript
+document.addEventListener("DOMContentLoaded", () => {
+
 const noteNames=[
 "C","C#","D","D#","E","F",
 "F#","G","G#","A","A#","B"
@@ -153,7 +154,7 @@ async function startTuner(){
     try{
 
         audioContext=new(
-            window.AudioContext ||
+            window.AudioContext||
             window.webkitAudioContext
         )();
 
@@ -163,9 +164,7 @@ async function startTuner(){
             });
 
         const source=
-            audioContext.createMediaStreamSource(
-                stream
-            );
+            audioContext.createMediaStreamSource(stream);
 
         analyser=
             audioContext.createAnalyser();
@@ -177,12 +176,7 @@ async function startTuner(){
         detectPitch();
 
     }catch(err){
-
-        alert(
-            "Microphone access failed:\n\n"+
-            err.message
-        );
-
+        alert(err.message);
         console.error(err);
     }
 }
@@ -190,299 +184,142 @@ async function startTuner(){
 function detectPitch(){
 
     const buffer=
-        new Float32Array(
-            analyser.fftSize
-        );
+        new Float32Array(analyser.fftSize);
 
-    analyser.getFloatTimeDomainData(
-        buffer
-    );
+    analyser.getFloatTimeDomainData(buffer);
 
     const pitch=
-        yin(
-            buffer,
-            audioContext.sampleRate
-        );
+        yinPitch(buffer,audioContext.sampleRate);
 
     if(pitch>0){
         updateUI(pitch);
     }
 
-    requestAnimationFrame(
-        detectPitch
-    );
+    requestAnimationFrame(detectPitch);
 }
 
 function updateUI(freq){
 
     pitchHistory.push(freq);
+    if(pitchHistory.length>15) pitchHistory.shift();
 
-    if(pitchHistory.length>15){
-        pitchHistory.shift();
-    }
-
-    const avgFreq=
-        pitchHistory.reduce(
-            (a,b)=>a+b,0
-        )/pitchHistory.length;
+    const avg=
+        pitchHistory.reduce((a,b)=>a+b,0)/pitchHistory.length;
 
     const note=
-        69+
-        12*Math.log2(
-            avgFreq/440
-        );
+        69+12*Math.log2(avg/440);
 
-    const rounded=
-        Math.round(note);
+    const rounded=Math.round(note);
 
-    const noteName=
-        noteNames[
-            ((rounded%12)+12)%12
-        ];
+    const name=
+        noteNames[((rounded%12)+12)%12];
 
-    const targetFreq=
-        440*Math.pow(
-            2,
-            (rounded-69)/12
-        );
+    const target=
+        440*Math.pow(2,(rounded-69)/12);
 
     const cents=
-        1200*Math.log2(
-            avgFreq/targetFreq
-        );
+        1200*Math.log2(avg/target);
 
-    document
-        .getElementById("note")
-        .textContent=noteName;
+    document.getElementById("note").textContent=name;
 
-    const status=
-        document.getElementById(
-            "status"
-        );
+    const status=document.getElementById("status");
 
     if(Math.abs(cents)<=3){
-
-        status.textContent=
-            "✓ IN TUNE";
-
-        status.className=
-            "in-tune";
-
+        status.textContent="✓ IN TUNE";
+        status.className="in-tune";
     }else if(cents<0){
-
-        status.textContent=
-            "◀ TOO LOW";
-
-        status.className=
-            "flat";
-
+        status.textContent="◀ TOO LOW";
+        status.className="flat";
     }else{
-
-        status.textContent=
-            "TOO HIGH ▶";
-
-        status.className=
-            "sharp";
+        status.textContent="TOO HIGH ▶";
+        status.className="sharp";
     }
 
-    const needle=
-        document.getElementById(
-            "needle"
-        );
+    const needle=document.getElementById("needle");
 
-    let pos=
-        50+(cents*0.5);
+    let pos=50+(cents*0.5);
+    pos=Math.max(5,Math.min(95,pos));
 
-    pos=Math.max(
-        5,
-        Math.min(95,pos)
-    );
+    const current=parseFloat(needle.dataset.pos||50);
+    const smooth=current+(pos-current)*0.15;
 
-    const current=
-        parseFloat(
-            needle.dataset.pos || 50
-        );
-
-    const smoothed=
-        current+
-        ((pos-current)*0.15);
-
-    needle.dataset.pos=
-        smoothed;
-
-    needle.style.left=
-        smoothed+"%";
+    needle.dataset.pos=smooth;
+    needle.style.left=smooth+"%";
 }
 
-/* ===========================
-   YIN PITCH DETECTOR
-   =========================== */
+/* FAST YIN (real-time safe approximation) */
+function yinPitch(buffer,sampleRate){
 
-function yin(buffer,sampleRate){
-
+    const size=buffer.length;
     const threshold=0.15;
 
-    const yinLength=
-        Math.floor(
-            buffer.length/2
-        );
+    const diff=new Float32Array(size/2);
 
-    const yinBuffer=
-        new Float32Array(
-            yinLength
-        );
-
-    for(
-        let tau=1;
-        tau<yinLength;
-        tau++
-    ){
+    for(let tau=1;tau<diff.length;tau++){
 
         let sum=0;
 
-        for(
-            let i=0;
-            i<yinLength;
-            i++
-        ){
-
-            const delta=
-                buffer[i]-
-                buffer[i+tau];
-
-            sum+=delta*delta;
+        for(let i=0;i<diff.length;i++){
+            const d=buffer[i]-buffer[i+tau];
+            sum+=d*d;
         }
 
-        yinBuffer[tau]=sum;
+        diff[tau]=sum;
     }
 
-    yinBuffer[0]=1;
+    let running=0;
 
-    let runningSum=0;
-
-    for(
-        let tau=1;
-        tau<yinLength;
-        tau++
-    ){
-
-        runningSum+=
-            yinBuffer[tau];
-
-        yinBuffer[tau]*=
-            tau/runningSum;
+    for(let i=1;i<diff.length;i++){
+        running+=diff[i];
+        diff[i]*=i/running;
     }
 
-    let tauEstimate=-1;
+    for(let tau=2;tau<diff.length;tau++){
 
-    for(
-        let tau=2;
-        tau<yinLength;
-        tau++
-    ){
-
-        if(
-            yinBuffer[tau]<
-            threshold
-        ){
-
-            while(
-                tau+1<yinLength &&
-                yinBuffer[tau+1]<
-                yinBuffer[tau]
-            ){
-                tau++;
-            }
-
-            tauEstimate=tau;
-            break;
+        if(diff[tau]<threshold){
+            return sampleRate/tau;
         }
     }
 
-    if(tauEstimate===-1){
-        return -1;
-    }
-
-    return sampleRate/
-           tauEstimate;
+    return -1;
 }
 
-/* ===========================
-   UKULELE-LIKE REFERENCE TONE
-   =========================== */
-
+/* UKULELE STYLE PLUCK */
 function playTone(freq){
 
-    const ctx=
-        new(
-            window.AudioContext ||
-            window.webkitAudioContext
-        )();
+    const ctx=new (window.AudioContext||window.webkitAudioContext)();
 
-    const now=
-        ctx.currentTime;
+    const now=ctx.currentTime;
 
-    const osc1=
-        ctx.createOscillator();
+    const gain=ctx.createGain();
 
-    const osc2=
-        ctx.createOscillator();
-
-    const osc3=
-        ctx.createOscillator();
-
-    const gain=
-        ctx.createGain();
+    const osc1=ctx.createOscillator();
+    const osc2=ctx.createOscillator();
 
     osc1.type="triangle";
     osc2.type="sine";
-    osc3.type="triangle";
 
-    osc1.frequency.value=
-        freq;
+    osc1.frequency.value=freq;
+    osc2.frequency.value=freq*2;
 
-    osc2.frequency.value=
-        freq*2;
-
-    osc3.frequency.value=
-        freq*3;
-
-    gain.gain.setValueAtTime(
-        0.0001,
-        now
-    );
-
-    gain.gain.exponentialRampToValueAtTime(
-        0.35,
-        now+0.01
-    );
-
-    gain.gain.exponentialRampToValueAtTime(
-        0.0001,
-        now+2
-    );
+    gain.gain.setValueAtTime(0.0001,now);
+    gain.gain.exponentialRampToValueAtTime(0.3,now+0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001,now+1.5);
 
     osc1.connect(gain);
     osc2.connect(gain);
-    osc3.connect(gain);
-
-    gain.connect(
-        ctx.destination
-    );
+    gain.connect(ctx.destination);
 
     osc1.start(now);
     osc2.start(now);
-    osc3.start(now);
 
-    osc1.stop(now+2);
-    osc2.stop(now+2);
-    osc3.stop(now+2);
+    osc1.stop(now+1.5);
+    osc2.stop(now+1.5);
 
-    setTimeout(()=>{
-        ctx.close();
-    },2200);
+    setTimeout(()=>ctx.close(),1600);
 }
 
+});
 </script>
 
 </body>
